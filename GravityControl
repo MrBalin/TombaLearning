@@ -1,0 +1,118 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+[RequireComponent(typeof(CapsuleCollider))]
+[RequireComponent(typeof(Rigidbody))]
+public class GravityControl : MonoBehaviour
+{
+    [HideInInspector] public Rigidbody myRigidbody;
+    [HideInInspector] public CapsuleCollider myCollider;
+
+
+    [Header("Ground Control")]
+    [Range(0.1f, 4f)]
+    [SerializeField] float m_GravityMultiplier = 2f;
+    [Range(0f, 100f)]
+    [SerializeField] float dragMultiplier = 5f;
+    [SerializeField] float SlopeLimit = 50;
+    [SerializeField] float GroundCheckDistance = 0.2f;
+    [SerializeField] LayerMask Ground;
+    bool isGrounded;
+    bool previouslyGrounded;
+    float movingPlatform_Timer;
+    Transform movingPlatform;
+    Vector3 groundNormal;
+
+    public Vector3 GroundNormal
+    {
+        get { return groundNormal; }
+    }
+
+
+    private void Awake()
+    {
+        myCollider = GetComponent<CapsuleCollider>();
+
+        myRigidbody = GetComponent<Rigidbody>();
+        myRigidbody.constraints = RigidbodyConstraints.FreezeRotation;
+        myRigidbody.useGravity = false;
+    }
+
+    private void FixedUpdate()
+    {
+        CheckStatus_Ground();
+        myRigidbody.drag = isGrounded ? dragMultiplier : 0;
+
+        if (!isGrounded) myRigidbody.AddForce(groundNormal * Physics.gravity.y * m_GravityMultiplier);
+    }
+
+
+    #region GroundCheck
+    void CheckStatus_Ground()
+    {
+        RaycastHit hitInfo;
+        Vector3 _origin = transform.position + myCollider.center;
+        float _distanceDown = myCollider.center.y + GroundCheckDistance;
+
+        //If detect ground
+        if (Physics.Raycast(_origin, Vector3.down, out hitInfo, _distanceDown, Ground))
+        {
+            if (hitInfo.collider.isTrigger) return;
+            //Debug.Log(Vector3.Angle(Vector3.up, hitInfo.normal));
+
+            //If ground not too steep
+            if (Vector3.Angle(Vector3.up, hitInfo.normal) < SlopeLimit)
+            {
+                groundNormal = hitInfo.normal;
+                isGrounded = true;
+                if (!previouslyGrounded)
+                {
+                    myRigidbody.velocity = new Vector3(myRigidbody.velocity.x, 0, myRigidbody.velocity.z);
+                    previouslyGrounded = true;
+                }
+
+
+                if (hitInfo.transform.tag == "MovingPlatform")
+                {
+                    //Debug.Log("on MovingPlatform");
+                    movingPlatform = hitInfo.transform;
+                    movingPlatform_Timer = 0.2f;
+                    //Breathing room to not slide around
+                }
+
+            }
+            else
+            {
+                //If ground too steep
+                previouslyGrounded = false;
+                isGrounded = false;
+                groundNormal = Vector3.up;
+            }
+        }
+        else
+        {
+            //did not detect ground
+            previouslyGrounded = false;
+            isGrounded = false;
+            groundNormal = Vector3.up;
+        }
+
+        Debug.Log("IsGrounded: " + isGrounded);
+    }
+
+    void IfOn_MovingPlatform_Stay()
+    {
+        if (movingPlatform && movingPlatform_Timer > 0)
+            transform.parent = movingPlatform;
+
+        movingPlatform_Timer -= Time.deltaTime;
+
+        if (movingPlatform_Timer <= 0)
+        {
+            transform.parent = null;
+            movingPlatform = null;
+        }
+    }
+    #endregion
+}
