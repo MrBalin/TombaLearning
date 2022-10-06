@@ -1,0 +1,29 @@
+using System.Collections;
+using System.Collections.Generic;
+using Unity.Mathematics;
+using UnityEngine;
+
+public class Spline_RotateToDirection : MonoBehaviour
+{
+    [SerializeField] Spline_Navigator myNavigator;
+    [SerializeField] float speed_ToRotate = 10;
+    Quaternion currentRotation;
+
+    // Update is called once per frame
+    void Update()
+    {
+        currentRotation = Quaternion.LookRotation(myNavigator.DirectionForPlayerRotation);
+    }
+
+    private void FixedUpdate()
+    {
+        RotateTowards_Direction();
+    }
+
+
+    void RotateTowards_Direction()
+    {
+        Quaternion slerp = Quaternion.Slerp(transform.rotation, currentRotation, speed_ToRotate * Time.deltaTime);
+        transform.rotation = slerp;
+    }
+}
