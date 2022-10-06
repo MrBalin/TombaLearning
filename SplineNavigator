@@ -1,6 +1,7 @@
 using Dreamteck.Splines;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Mathematics;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -11,6 +12,7 @@ using static UnityEngine.GraphicsBuffer;
  * Requires DreamTeck Splines (From Asset Store)
  */
 [RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(GravityControl))]
 public class Spline_Navigator : MonoBehaviour
 {
     [HideInInspector] public Rigidbody myRigidbody;
@@ -30,7 +32,7 @@ public class Spline_Navigator : MonoBehaviour
 
     [Header("Character Settings")]
     [SerializeField] float currentSpeed = 4;
-
+    [SerializeField] GravityControl myGravityController;
 
 
     [Header("Spline Confine")]
@@ -40,24 +42,22 @@ public class Spline_Navigator : MonoBehaviour
     [Range(0f, 0.01f)]
     [SerializeField] float endCapVariance = 0.005f;
     SplineSample sample;
-    Vector3 delta;
-    Vector3 cross;
-    Vector3 sampleForward_AlteredByInput;
 
-    Vector3 directionForPlayerRotation;
+    Vector3 direction_SampleForward_AlteredByInput;
+    Vector3 direction_Planar;
+    Vector3 direction_ForPlayerRotation;
+
     [HideInInspector] public Vector3 DirectionForPlayerRotation
     {
-        get { return directionForPlayerRotation; }
+        get { return direction_ForPlayerRotation; }
     }
 
 
     void Awake()
     {
         myRigidbody = GetComponent<Rigidbody>();
-        myRigidbody.constraints = RigidbodyConstraints.FreezeRotation;
-        myRigidbody.useGravity = true; 
-
         sample = new SplineSample();
+
         GetSample_InRelationToCurrentWorldPosition();
     }
 
@@ -66,14 +66,14 @@ public class Spline_Navigator : MonoBehaviour
     {
         movement = input_Move;
         GetSample_InRelationToCurrentWorldPosition();
-        GetDirection_InRelationToSampleForward(MyCamera);
 
-        sampleForward_AlteredByInput = AssignInputsForMovement();
+        direction_SampleForward_AlteredByInput = AssignInputsForMovement();
+        direction_Planar = MoveOnPlane(direction_SampleForward_AlteredByInput);
     }
 
     private void FixedUpdate()
     {
-        Move_Rigidbody(myRigidbody, sampleForward_AlteredByInput);
+        Move_Rigidbody(myRigidbody);
     }
 
 
@@ -96,15 +96,15 @@ public class Spline_Navigator : MonoBehaviour
         //Debug.Log(sample.position + " forward: " + sample.forward);
     }
 
-    void GetDirection_InRelationToSampleForward(Transform _transform)
+    Vector3 GetDirection_InRelationToSampleForward(Transform _transform)
     {
         /*
          * Now that we have the sample closest to where GameObject is, 
          * For Left/Right inputs to be accurately portrayed on the Spline,
          * We need to know where Camera is, in relation to Sample.Forward.
          */
-        delta = (_transform.position - sample.position).normalized;
-        cross = Vector3.Cross(delta, sample.forward);
+        Vector3 delta = (_transform.position - sample.position).normalized;
+        Vector3 cross = Vector3.Cross(delta, sample.forward);
 
         //if (cross == Vector3.zero)
         //{
@@ -120,6 +120,8 @@ public class Spline_Navigator : MonoBehaviour
         //{
         //    Debug.Log("camera to left");
         //}
+
+        return cross;
     }
 
     Vector3 AssignInputsForMovement()
@@ -141,7 +143,7 @@ public class Spline_Navigator : MonoBehaviour
 
         if (input_Move.x != 0)
         {
-            if (cross.y < 0)
+            if (GetDirection_InRelationToSampleForward(MyCamera).y < 0)
             {
                 //Debug.Log("camera to right");
 
@@ -158,10 +160,10 @@ public class Spline_Navigator : MonoBehaviour
                 }
 
                 temp = sample.forward * movement.x;
-                directionForPlayerRotation = temp;
+                direction_ForPlayerRotation = temp;
             }
 
-            if (cross.y > 0)
+            if (GetDirection_InRelationToSampleForward(MyCamera).y > 0)
             {
                 //Debug.Log("camera to left");
 
@@ -178,7 +180,7 @@ public class Spline_Navigator : MonoBehaviour
                 }
 
                 temp = sample.forward * -movement.x;
-                directionForPlayerRotation = temp;
+                direction_ForPlayerRotation = temp;
             }
         }
 
@@ -186,9 +188,17 @@ public class Spline_Navigator : MonoBehaviour
     }
 
 
-    void Move_Rigidbody(Rigidbody _rigidbody , Vector3 _direction)
+    Vector3 MoveOnPlane(Vector3 _direction)
+    {
+        Vector3 temp = Vector3.ProjectOnPlane(_direction, myGravityController.GroundNormal);
+        if (myGravityController.GroundNormal == Vector3.up) temp.y = transform.eulerAngles.y;
+
+        return temp;
+    }
+
+    void Move_Rigidbody(Rigidbody _rigidbody)
     {
         Vector3 temp = new Vector3(sample.position.x, transform.position.y, sample.position.z);
-        _rigidbody.MovePosition(Vector3.Lerp(transform.position, temp + _direction, currentSpeed * Time.deltaTime));
+        _rigidbody.MovePosition(Vector3.Lerp(transform.position, temp + direction_Planar, currentSpeed * Time.deltaTime));
     }
 }
