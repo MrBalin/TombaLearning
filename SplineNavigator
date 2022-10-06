@@ -1,0 +1,193 @@
+using Dreamteck.Splines;
+using System.Collections;
+using System.Collections.Generic;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using static UnityEngine.GraphicsBuffer;
+
+/*
+ * Requires UnityEngine.InputSystem (From Package Manager)
+ * Requires DreamTeck Splines (From Asset Store)
+ */
+[RequireComponent(typeof(Rigidbody))]
+public class Spline_Navigator : MonoBehaviour
+{
+    [HideInInspector] public Rigidbody myRigidbody;
+
+    #region Inputs
+    private Vector2 movement;
+    public Vector2 Movement
+    {
+        get { return movement; }
+    }
+    private Vector2 input_Move;
+    public void OnMove(InputAction.CallbackContext context)
+    {
+        input_Move = context.ReadValue<Vector2>();
+    }
+    #endregion
+
+    [Header("Character Settings")]
+    [SerializeField] float currentSpeed = 4;
+
+
+
+    [Header("Spline Confine")]
+    public SplineComputer CurrentSpline;
+    public SplineProjector MyProjector;
+    public Transform MyCamera;
+    [Range(0f, 0.01f)]
+    [SerializeField] float endCapVariance = 0.005f;
+    SplineSample sample;
+    Vector3 delta;
+    Vector3 cross;
+    Vector3 sampleForward_AlteredByInput;
+
+    Vector3 directionForPlayerRotation;
+    [HideInInspector] public Vector3 DirectionForPlayerRotation
+    {
+        get { return directionForPlayerRotation; }
+    }
+
+
+    void Awake()
+    {
+        myRigidbody = GetComponent<Rigidbody>();
+        myRigidbody.constraints = RigidbodyConstraints.FreezeRotation;
+        myRigidbody.useGravity = true; 
+
+        sample = new SplineSample();
+        GetSample_InRelationToCurrentWorldPosition();
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        movement = input_Move;
+        GetSample_InRelationToCurrentWorldPosition();
+        GetDirection_InRelationToSampleForward(MyCamera);
+
+        sampleForward_AlteredByInput = AssignInputsForMovement();
+    }
+
+    private void FixedUpdate()
+    {
+        Move_Rigidbody(myRigidbody, sampleForward_AlteredByInput);
+    }
+
+
+
+
+    void GetSample_InRelationToCurrentWorldPosition()
+    {
+        /* MyProjector feeds data as to closest %/position the GameObject is on CurrentSpline
+         * It DOES NOT actually give sample data.
+         * Samples are not waypoints, but the points between them than make up the Splines Curves.
+         * 
+         * Assign variable 'sample' to get sample & more specifically, sample.forward direction.
+         * To help learn more about directions of the sample, uncomment the Debug.DrawRays
+         */
+
+        sample = CurrentSpline.Evaluate(MyProjector.GetPercent(), SplineComputer.EvaluateMode.Cached);
+        //Debug.DrawRay(sample.position, sample.forward, Color.blue, 10f);
+        //Debug.DrawRay(sample.position, sample.up, Color.green, 10f);
+        //Debug.DrawRay(sample.position, sample.right, Color.red, 10f);
+        //Debug.Log(sample.position + " forward: " + sample.forward);
+    }
+
+    void GetDirection_InRelationToSampleForward(Transform _transform)
+    {
+        /*
+         * Now that we have the sample closest to where GameObject is, 
+         * For Left/Right inputs to be accurately portrayed on the Spline,
+         * We need to know where Camera is, in relation to Sample.Forward.
+         */
+        delta = (_transform.position - sample.position).normalized;
+        cross = Vector3.Cross(delta, sample.forward);
+
+        //if (cross == Vector3.zero)
+        //{
+        //    Debug.Log("camera is straight ahead");
+        //}
+
+        //if (cross.y < 0)
+        //{
+        //    Debug.Log("camera to right");
+        //}
+
+        //if (cross.y > 0)
+        //{
+        //    Debug.Log("camera to left");
+        //}
+    }
+
+    Vector3 AssignInputsForMovement()
+    {
+
+        /*
+         * Now that we know what side of the Spline, the Camera is on,
+         * We can adjust Left/Right inputs,
+         * in relation to Camera's perspective of the Spline.
+         * 
+         * If Camera is on one side of the Spline:
+         * Left should move Character forward on Spline
+         * 
+         * If Camera is on the OTHER side of Spline:
+         * Left should move Character backwards on Spline
+         */
+
+        Vector3 temp = Vector3.zero;
+
+        if (input_Move.x != 0)
+        {
+            if (cross.y < 0)
+            {
+                //Debug.Log("camera to right");
+
+                /*
+                 * Should the Character reach the end of a Spline, do not enforce further input from Player.
+                 */
+                if (sample.percent + endCapVariance >= 1)
+                {
+                    movement.x = Mathf.Clamp(movement.x, movement.x, 0);
+                }
+                if (sample.percent - endCapVariance <= 0)
+                {
+                    movement.x = Mathf.Clamp(movement.x, 0, movement.x);
+                }
+
+                temp = sample.forward * movement.x;
+                directionForPlayerRotation = temp;
+            }
+
+            if (cross.y > 0)
+            {
+                //Debug.Log("camera to left");
+
+                /*
+                 * Should the Character reach the end of a Spline, do not enforce further input from Player.
+                 */
+                if (sample.percent + endCapVariance >= 1)
+                {
+                    movement.x = Mathf.Clamp(movement.x, 0, movement.x);
+                }
+                if (sample.percent - endCapVariance <= 0)
+                {
+                    movement.x = Mathf.Clamp(movement.x, movement.x, 0);
+                }
+
+                temp = sample.forward * -movement.x;
+                directionForPlayerRotation = temp;
+            }
+        }
+
+        return temp;
+    }
+
+
+    void Move_Rigidbody(Rigidbody _rigidbody , Vector3 _direction)
+    {
+        _rigidbody.MovePosition(Vector3.Lerp(transform.position, sample.position + _direction, currentSpeed * Time.deltaTime));
+    }
+}
