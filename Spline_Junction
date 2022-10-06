@@ -1,0 +1,88 @@
+using Dreamteck.Splines;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+
+[RequireComponent(typeof(BoxCollider))]
+public class Spline_Junction : MonoBehaviour
+{
+    #region Inputs
+    private Vector2 input_Move;
+    public void OnMove(InputAction.CallbackContext context)
+    {
+        input_Move = context.ReadValue<Vector2>();
+    }
+    private float input_Jump;
+    public void OnJump(InputAction.CallbackContext context)
+    {
+        input_Jump = context.ReadValue<float>();
+    }
+    #endregion
+
+    [SerializeField] SplineComputer Spline_A;
+    [SerializeField] SplineComputer Spline_B;
+
+    [SerializeField] Transform my3DUI;
+
+
+    BoxCollider myCollider;
+    bool didChange;
+
+    private void Awake()
+    {
+        myCollider = GetComponent<BoxCollider>();
+        myCollider.isTrigger = true;
+
+        my3DUI.gameObject.SetActive(false);
+        didChange = false;
+
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        if(other.tag == "Player")
+        {
+            my3DUI.gameObject.SetActive(true);
+            
+            if(input_Move.y > 0 && input_Jump == 1 && !didChange)
+            {
+                didChange = true;
+                Spline_Navigator navigator = other.GetComponent<Spline_Navigator>();
+                if(navigator != null) AssignSpline(navigator);
+            }
+
+            if(input_Jump == 0) didChange = false;
+        }
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        if(other.tag == "Player")
+        {
+            my3DUI.gameObject.SetActive(false);
+            didChange = false;
+
+        }
+    }
+
+    public void AssignSpline(Spline_Navigator _splineNavigator)
+    {
+        if (_splineNavigator.MyProjector.spline == Spline_A)
+        {
+            _splineNavigator.MyProjector.spline = Spline_B;
+            _splineNavigator.CurrentSpline = Spline_B;
+            Debug.Log("Assigned to: Spline B");
+            return;
+        }
+
+        if (_splineNavigator.MyProjector.spline == Spline_B)
+        {
+            _splineNavigator.MyProjector.spline = Spline_A;
+            _splineNavigator.CurrentSpline = Spline_A;
+            Debug.Log("Assigned to: Spline A");
+            return;
+        }
+    }
+}
