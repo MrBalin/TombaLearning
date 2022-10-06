@@ -188,6 +188,7 @@ public class Spline_Navigator : MonoBehaviour
 
     void Move_Rigidbody(Rigidbody _rigidbody , Vector3 _direction)
     {
-        _rigidbody.MovePosition(Vector3.Lerp(transform.position, sample.position + _direction, currentSpeed * Time.deltaTime));
+        Vector3 temp = new Vector3(sample.position.x, transform.position.y, sample.position.z);
+        _rigidbody.MovePosition(Vector3.Lerp(transform.position, temp + _direction, currentSpeed * Time.deltaTime));
     }
 }
