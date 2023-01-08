@@ -1,25 +1,36 @@
-//purchased from Asset store, but probably better off w/ different/better Spline Package
+
+//Purchased on Unity Asset Store, I recommend getting an easier/different one.
 using Dreamteck.Splines;
 using UnityEngine;
-//Download for free in Package Manager window
+
+//download for free from Unity Package Manager
 using Cinemachine;
 using UnityEngine.UI;
+
+
+//to show up in inspector, cannot derive from MonoBehavior
+[System.Serializable]
+public class Spline_Helper
+{
+    public SplineComputer Spline;
+    public CinemachineVirtualCamera Virtua_Camera;
+
+    public Transform my3DUI;
+    public Image filler_A;
+    public Image filler_B;
+
+}
+
 
 [RequireComponent(typeof(BoxCollider))]
 public class Spline_Junction : MonoBehaviour
 {
+    [SerializeField] Color col_PathCurrent;
+    [SerializeField] Color col_PathNew;
 
 
-    //group below into subclass: Spline & Camera?
-    [SerializeField] SplineComputer Spline_A;
-    [SerializeField] SplineComputer Spline_B;
-
-    [SerializeField] CinemachineVirtualCamera Camera_A;
-    [SerializeField] CinemachineVirtualCamera Camera_B;
-
-    [SerializeField] Transform my3DUI;
-
-    [SerializeField] Image fillerImage;
+    public Spline_Helper Path_A = new Spline_Helper();
+    public Spline_Helper Path_B = new Spline_Helper();
 
 
     BoxCollider myCollider;
@@ -37,29 +48,38 @@ public class Spline_Junction : MonoBehaviour
         myCollider = GetComponent<BoxCollider>();
         myCollider.isTrigger = true;
 
-        my3DUI.gameObject.SetActive(false);
+        if (Path_A.my3DUI) Path_A.my3DUI.gameObject.SetActive(false);
+        if (Path_B.my3DUI) Path_B.my3DUI.gameObject.SetActive(false);
+
         didChange = false;
         timer = 0;
-        fillerImage.fillAmount = 0;
+
+        if (Path_A.filler_A) Path_A.filler_A.fillAmount = 0;
+        if (Path_A.filler_B) Path_A.filler_B.fillAmount = 0;
+
+        if (Path_B.filler_A) Path_B.filler_A.fillAmount = 0;
+        if (Path_B.filler_B) Path_B.filler_B.fillAmount = 0;
+
     }
 
     private void Update()
     {
+        Debug.Log("didChange:" + didChange);
         if (playerManager != null && !didChange)
         {
-
+            //Debug.Log("running");
+            //Start & End of splines are not true unless player continuously moving in that direction
             if (playerManager.MySpline_Navigator.AtStartofSpline)
             {
                 if (timer <= timeRemaining)
                 {
                     timer += Time.deltaTime;
-
-                    fillerImage.fillAmount = timer / timeRemaining;
+                    UITimer_Show();
                 }
                 else
                 {
                     if (playerManager.MySpline_Navigator != null) AssignSpline(playerManager.MySpline_Navigator);
-                    didChange = true;
+                    //didChange = true;
                 }
             }
 
@@ -68,12 +88,12 @@ public class Spline_Junction : MonoBehaviour
                 if (timer <= timeRemaining)
                 {
                     timer += Time.deltaTime;
-                    fillerImage.fillAmount = timer / timeRemaining;
+                    UITimer_Show();
                 }
                 else
                 {
                     if (playerManager.MySpline_Navigator != null) AssignSpline(playerManager.MySpline_Navigator);
-                    didChange = true;
+                    //didChange = true;
                 }
             }
             
@@ -85,33 +105,63 @@ public class Spline_Junction : MonoBehaviour
                     if (timer <= timeRemaining)
                     {
                         timer += Time.deltaTime;
-                        fillerImage.fillAmount = timer / timeRemaining;
+                        UITimer_Show();
                     }
                     else
                     {
-
                         if (playerManager.MySpline_Navigator != null) AssignSpline(playerManager.MySpline_Navigator);
-                        didChange = true;
+                        //didChange = true;
                     }
                 }
+
                 if (playerManager.MyInputs.CurrentPlayer.GetAxis(playerManager.MyInputs.Move_V) <= 0)
                 {
                     timer = 0;
-                    fillerImage.fillAmount = 0;
+                    UITimer_Reset();
                 }
             }
-
-          
-            //Debug.Log("timer: " + timer);
         }
     }
 
-    private void OnTriggerStay(Collider other)
+    private void CheckCurrentPath()
+    {
+        if (playerManager.MySpline_Navigator.MyProjector.spline == Path_A.Spline)
+        {
+            if (Path_A.filler_A) Path_A.filler_A.color = col_PathCurrent;
+            if (Path_A.filler_B) Path_A.filler_B.color = col_PathCurrent;
+
+            if (Path_B.filler_A) Path_B.filler_A.color = col_PathNew;
+            if (Path_B.filler_B) Path_B.filler_B.color = col_PathNew;
+
+            if (Path_A.filler_A) Path_A.filler_A.fillAmount = 1;
+            if (Path_A.filler_B) Path_A.filler_B.fillAmount = 1;
+
+        }
+        if (playerManager.MySpline_Navigator.MyProjector.spline == Path_B.Spline)
+        {
+            if (Path_B.filler_A) Path_B.filler_A.color = col_PathCurrent;
+            if (Path_B.filler_B) Path_B.filler_B.color = col_PathCurrent;
+
+            if (Path_A.filler_A) Path_A.filler_A.color = col_PathNew;
+            if (Path_A.filler_B) Path_A.filler_B.color = col_PathNew;
+
+            if (Path_B.filler_A) Path_B.filler_A.fillAmount = 1;
+            if (Path_B.filler_B) Path_B.filler_B.fillAmount = 1;
+        }
+    }
+
+    private void OnTriggerEnter(Collider other)
     {
         if(other.tag == "Player")
         {
-            my3DUI.gameObject.SetActive(true);
             playerManager = other.GetComponent<Manager_PlayerMovement>();
+
+
+            CheckCurrentPath();
+
+            if (Path_A.my3DUI) Path_A.my3DUI.gameObject.SetActive(true);
+            if (Path_B.my3DUI) Path_B.my3DUI.gameObject.SetActive(true);
+
         }
     }
 
@@ -119,44 +169,93 @@ public class Spline_Junction : MonoBehaviour
     {
         if(other.tag == "Player")
         {
-            my3DUI.gameObject.SetActive(false);
+            if (Path_A.my3DUI) Path_A.my3DUI.gameObject.SetActive(false);
+            if (Path_B.my3DUI) Path_B.my3DUI.gameObject.SetActive(false);
+
             didChange = false;
             timer = 0;
-            fillerImage.fillAmount = 0;
             playerManager = null;
 
         }
     }
 
+
+    public void UITimer_Show()
+    {
+        //Debug.Log("using input inside junction");
+
+        if (playerManager.MySpline_Navigator.MyProjector.spline == Path_A.Spline)
+        {
+            if (Path_A.filler_A) Path_A.filler_A.fillAmount = 1 - (timer / timeRemaining);
+            if (Path_A.filler_B) Path_A.filler_B.fillAmount = 1 - (timer / timeRemaining);
+
+            if (Path_B.filler_A) Path_B.filler_A.fillAmount = (timer / timeRemaining);
+            if (Path_B.filler_B) Path_B.filler_B.fillAmount = (timer / timeRemaining);
+        }
+        if (playerManager.MySpline_Navigator.MyProjector.spline == Path_B.Spline)
+        {
+            if (Path_B.filler_A) Path_B.filler_A.fillAmount = 1 - (timer / timeRemaining);
+            if (Path_B.filler_B) Path_B.filler_B.fillAmount = 1 - (timer / timeRemaining);
+
+            if (Path_A.filler_A) Path_A.filler_A.fillAmount = (timer / timeRemaining);
+            if (Path_A.filler_B) Path_A.filler_B.fillAmount = (timer / timeRemaining);
+        }
+    }
+
+    public void UITimer_Reset()
+    {
+        if (playerManager.MySpline_Navigator.MyProjector.spline == Path_A.Spline)
+        {
+            if (Path_A.filler_A) Path_A.filler_A.fillAmount = 1;
+            if (Path_A.filler_B) Path_A.filler_B.fillAmount = 1;
+
+            if (Path_B.filler_A) Path_B.filler_A.fillAmount = 0;
+            if (Path_B.filler_B) Path_B.filler_B.fillAmount = 0;
+        }
+        if (playerManager.MySpline_Navigator.MyProjector.spline == Path_B.Spline)
+        {
+            if (Path_B.filler_A) Path_B.filler_A.fillAmount = 1;
+            if (Path_B.filler_B) Path_B.filler_B.fillAmount = 1;
+
+            if (Path_A.filler_A) Path_A.filler_A.fillAmount = 0;
+            if (Path_A.filler_B) Path_A.filler_B.fillAmount = 0;
+        }
+    }
+
     public void AssignSpline(Spline_Navigator _splineNavigator)
     {
-        if (_splineNavigator.MyProjector.spline == Spline_A)
+        //Debug.Log("assigned new spline");
+
+        if (_splineNavigator.MyProjector.spline == Path_A.Spline)
         {
-            _splineNavigator.MyProjector.spline = Spline_B;
-            _splineNavigator.CurrentSpline = Spline_B;
-            //Debug.Log("Assigned to: Spline B");
+            _splineNavigator.MyProjector.spline = Path_B.Spline;
+            _splineNavigator.CurrentSpline = Path_B.Spline;
 
-            Camera_B.Priority = 1;
-            Camera_A.Priority = 0;
+            Path_B.Virtua_Camera.Priority = 1;
+            Path_A.Virtua_Camera.Priority = 0;
 
+
+            CheckCurrentPath();
+            didChange = false;
             timer = 0;
-            fillerImage.fillAmount = 0;
+
 
             return;
         }
 
-        if (_splineNavigator.MyProjector.spline == Spline_B)
+        if (_splineNavigator.MyProjector.spline == Path_B.Spline)
         {
-            _splineNavigator.MyProjector.spline = Spline_A;
-            _splineNavigator.CurrentSpline = Spline_A;
+            _splineNavigator.MyProjector.spline = Path_A.Spline;
+            _splineNavigator.CurrentSpline = Path_A.Spline;
 
-            Camera_A.Priority = 1;
-            Camera_B.Priority = 0;
+            Path_A.Virtua_Camera.Priority = 1;
+            Path_B.Virtua_Camera.Priority = 0;
 
-
-            //Debug.Log("Assigned to: Spline A");
+            CheckCurrentPath();
+            didChange = false;
             timer = 0;
-            fillerImage.fillAmount = 0;
+ 
+
             return;
         }
     }
