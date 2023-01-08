@@ -1,0 +1,528 @@
+using DG.Tweening;
+using Rewired;
+using UnityEditor.PackageManager;
+using UnityEditor.PackageManager.UI;
+using UnityEngine;
+using System;
+
+[RequireComponent(typeof(Manager_PlayerMovement))]
+public class WallClimbing : MonoBehaviour
+{
+    Rigidbody myRigidbody;
+    Manager_PlayerMovement myManager;
+    public Manager_PlayerMovement MyManager
+    {
+        get { return myManager; }
+    }
+
+    #region Inputs
+    private Vector2 movement;
+    public Vector2 Movement
+    {
+        get { return movement; }
+    }
+    #endregion
+
+
+    [Header("Character Settings")]
+    [SerializeField] float speed = 4;
+    float currentSpeed;
+
+    Vector3 direction_AlteredByInput;
+    Vector3 direction_Planar;
+
+    [Header("Wall Settings")]
+    [SerializeField] float checkDistance = 0.2f;
+    [SerializeField] float distance_CheckStillWallThere = 0.5f;
+    [SerializeField] LayerMask Climbable;
+    bool foundClimbableWall;
+
+
+    //private bool usedInput_X;
+
+    //public bool UsedInput_X
+    //{
+    //    get { return usedInput_X; }
+    //}
+
+    Vector3 currentWallDirection;
+    bool switchedSides;
+    public bool SwitchedSides
+    {
+        get { return switchedSides; }
+    }
+
+
+    public bool FoundClimbableWall
+    {
+        get { return foundClimbableWall; }
+    }
+    Vector3 wallNormal;
+    CapsuleCollider myCollider;
+
+    bool canClimbAgain;
+    public bool CanClimbAgain
+    {
+        get { return canClimbAgain; }
+    }
+
+
+    Pole currentPole;
+    Vector3 movement_SplineBased;
+
+    void Awake()
+    {
+        myManager = GetComponent<Manager_PlayerMovement>();
+
+        myRigidbody = GetComponent<Rigidbody>();
+        //unfreeze axes, so can face normal of wall with error
+        //myRigidbody.constraints = RigidbodyConstraints.FreezeRotation;
+        myCollider = GetComponent<CapsuleCollider>();
+
+        canClimbAgain = true;
+        usedInput_X = true;
+    }
+
+
+    public void Handle_UpdateFunctions()
+    {
+        movement = new Vector2 (myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H), myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_V));
+        movement_SplineBased = myManager.MySpline_Navigator.GetSplineBasedInputValues(movement);
+        //Debug.Log("new move: " + movement_SplineBased.ToString() + "direction of raycast: " + myManager.MySpline_Navigator.DirectionForPlayerRotation);
+        HandleSpeed();
+
+        direction_AlteredByInput = AssignVerticalInputsForMovement();
+        direction_Planar = MoveOnPlane(direction_AlteredByInput);
+
+
+
+
+        DoPoleRotation();
+
+    }
+
+
+    //Called from FALL state
+    public void CheckStatus_Wall()
+    {
+        RaycastHit hitInfo;
+        Vector3 _origin = transform.position + myCollider.center;
+        float _distanceAway = myCollider.radius + checkDistance;
+
+
+        if (Physics.Raycast(_origin, myManager.MySpline_Navigator.DirectionForPlayerRotation, out hitInfo, _distanceAway, Climbable))
+        {
+            if (hitInfo.collider.isTrigger) return;
+            //Debug.Log(Vector3.Angle(Vector3.up, hitInfo.normal));
+
+            //If considered Wall, as per GravityController
+            if (Vector3.Angle(Vector3.up, hitInfo.normal) > myManager.MyGravityController.SlopeLimit)
+            {
+                wallNormal = hitInfo.normal;
+                if (canClimbAgain) foundClimbableWall = true;
+
+
+                currentWallDirection = myManager.MySpline_Navigator.DirectionForPlayerRotation;
+
+
+
+
+                Handle_Poles(hitInfo);
+            }
+        }
+        else
+        {
+            canClimbAgain = true;
+
+
+
+            //do not need
+            //foundClimbableWall = false;
+            //canClimbAgain = true;
+            //if (!doPoleRotate) transform.parent = null;
+            //if (currentPole != null)
+            //{
+            //    currentPole.Player = null;
+            //    currentPole = null;
+            //}
+        }
+    }
+
+    public void LetGo()
+    {
+        //Needs to be set to false, because as soon as LetGo called, moved to FALL state, and will be reassigned WALLCLIMB state instantly.
+        //only marked true after at least moved away from wall.
+        canClimbAgain = false;
+
+        foundClimbableWall = false;
+      
+
+
+
+
+        if (currentPole != null)
+        {
+            currentPole.Player = null;
+            currentPole = null;
+        }
+        transform.parent = null;
+        usedInput_X = true;
+    }
+
+
+
+
+
+    #region Poles
+    void Handle_Poles(RaycastHit _hitInfo)
+    {
+        currentPole = _hitInfo.transform.GetComponent<Pole>();
+        if (currentPole != null)
+        {
+            transform.parent = currentPole.OffsetForPlayerRot.transform;
+            currentPole.Player = transform;
+        }
+    }
+
+
+
+
+
+
+    bool usedInput_X;
+    [SerializeField] float Timer_TODOpoleRot = 1f;
+    float timer_TODOPoleRot;
+    bool start_PoleRot;
+
+    [SerializeField] float poleRot_Duration = 0.5f;
+    float timer_PoleRot;
+    bool doOnce_AfterPoleRot;
+
+
+
+    Vector3 GetDirection_InRelationToForward(Transform _transform, Transform _target)
+    {
+        /*
+         * Now that we have the sample closest to where GameObject is, 
+         * For Left/Right inputs to be accurately portrayed on the Spline,
+         * We need to know where Camera is, in relation to Sample.Forward.
+         */
+        //Vector3 delta = (_transform.position - _target.position).normalized;
+        //Vector3 cross = Vector3.Cross(delta, _target.forward);
+
+        Vector3 delta = (_target.position - _transform.position).normalized;
+        Vector3 cross = Vector3.Cross(delta, _transform.forward);
+
+        //if (cross == Vector3.zero)
+        //{
+        //    Debug.Log("camera is straight ahead");
+        //}
+
+        //if (cross.y < 0)
+        //{
+        //    Debug.Log("camera to right");
+        //}
+
+        //if (cross.y > 0)
+        //{
+        //    Debug.Log("camera to left");
+        //}
+
+        return cross;
+    }
+
+
+    void DoPoleRotation()
+    {
+        //if player input torwards pole INTENTIONALLY:
+        //turn off player input
+        //do rotation
+        //turn back on player input
+
+
+
+
+
+        if (currentPole != null)
+        {
+
+
+
+            //if Player let go of LS left or right to climb pole
+            if (usedInput_X && Mathf.Abs(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H)) < MyManager.MyInputs.Deadzone_LS)
+            {
+                timer_TODOPoleRot = Timer_TODOpoleRot;
+                usedInput_X = false;
+            }
+
+
+
+            //if pressing LS into pole, initiate switch sides
+            if (!usedInput_X && !start_PoleRot)
+            {
+
+                /* What side is pole on to camera?
+                 * Is player pressing left or right?
+                 * Are they holding it for longer than timer?
+                 */
+
+
+                ////if pole right of camera
+                //if (usedInput_X && GetDirection_InRelationToForward(myManager.MyCamera.transform, currentPole.transform).y < 0)
+                //{
+
+                //}
+                ////if pole left of camera
+                //if (usedInput_X && GetDirection_InRelationToForward(myManager.MyCamera.transform, currentPole.transform).y > 0)
+                //{
+
+                //}
+
+
+
+
+
+
+                if (MyManager.MyCamera.GetDirection_InRelationTo(currentPole.transform).y > 0)
+                {
+                    //left of
+                    if (myManager.MySpline_Navigator.IsMovingCamLeft())
+                    {
+                        //timer
+                        if (timer_TODOPoleRot > 0)
+                        {
+                            timer_TODOPoleRot -= Time.deltaTime;
+                        }
+                        else
+                        {
+                            //Debug.Log("start rot");
+                            myManager.MyInputs.CanControl = false;
+                            timer_PoleRot = poleRot_Duration;
+                            currentPole.SwitchSides(poleRot_Duration, this);
+
+                            start_PoleRot = true;
+                        }
+                    }
+                    else
+                    {
+                        timer_TODOPoleRot = Timer_TODOpoleRot;
+                    }
+
+                }
+
+                if (MyManager.MyCamera.GetDirection_InRelationTo(currentPole.transform).y < 0)
+                {
+                    //right of
+                    if (myManager.MySpline_Navigator.IsMovingCamRight())
+                    {
+                        //timer
+                        if (timer_TODOPoleRot > 0)
+                        {
+                            timer_TODOPoleRot -= Time.deltaTime;
+                        }
+                        else
+                        {
+                            //Debug.Log("start rot");
+                            myManager.MyInputs.CanControl = false;
+                            timer_PoleRot = poleRot_Duration;
+                            currentPole.SwitchSides(poleRot_Duration, this);
+
+                            start_PoleRot = true;
+                        }
+                    }
+                    else
+                    {
+                        timer_TODOPoleRot = Timer_TODOpoleRot;
+                    }
+                }
+            }
+
+
+
+
+
+
+
+
+            //DO actual switch sides
+            if (start_PoleRot)
+            {
+                //timer
+                if (timer_PoleRot > 0)
+                {
+                    timer_PoleRot -= Time.deltaTime;
+                }
+                else
+                {
+                    //have player LOOK at pole entire time.
+                    currentWallDirection = -currentWallDirection;
+
+
+                    myManager.MyInputs.CanControl = true;
+                    //usedInput_X = true;
+
+                    //Debug.Log("finished rotation");
+                    start_PoleRot = false;
+
+                }
+            }
+        }
+    }
+
+    #endregion
+
+
+
+
+    void HandleSpeed()
+    {
+        currentSpeed = speed;
+    }
+
+    //Vector3 GetDirection_InRelationToSampleForward(Transform _transform)
+    //{
+    //    Vector3 delta = (_transform.position - myManager.MySpline_Navigator.MySample.position).normalized;
+    //    Vector3 cross = Vector3.Cross(delta, myManager.MySpline_Navigator.MySample.forward);
+    //    return cross;
+    //}
+
+
+    Vector3 MoveOnPlane(Vector3 _direction)
+    {
+        Vector3 temp = Vector3.ProjectOnPlane(_direction, wallNormal);
+        return temp;
+    }
+
+    public void Move_Rigidbody()
+    {
+        myRigidbody.MovePosition(Vector3.Lerp(transform.position, transform.position + direction_Planar, currentSpeed * Time.deltaTime));
+    }
+
+
+
+
+  
+    Vector3 AssignVerticalInputsForMovement()
+    {
+        Vector3 temp = Vector3.zero;
+
+        //if input up, check for wall, else clamp input to 0
+        if (myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_V) > 0)
+        {
+            RaycastHit hitInfo;
+            Vector3 _origin = transform.position + myCollider.center + (distance_CheckStillWallThere * Vector3.up);
+            float _distanceAway = myCollider.radius + checkDistance;
+
+            if (Physics.Raycast(_origin, currentWallDirection, out hitInfo, _distanceAway, Climbable))
+            {
+                //if (hitInfo.collider.isTrigger)
+                //{
+                //    movement.y = Mathf.Clamp(input_Move.y, movement.y, 0);
+                //    temp = movement;
+                //    return temp;
+                //    //clamp up as istrigger is still no wall.
+                //}
+                temp = Vector3.up * movement.y;
+            }
+            else
+            {
+                movement.y = Mathf.Clamp(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_V), movement.y, 0);
+                temp.y = movement.y;
+                //move to state: ledge grab
+            }
+
+
+
+
+            //Check for ceiling!!!
+            RaycastHit hitInfo_Ceiling;
+            Vector3 _origin_Ceiling = transform.position + myCollider.center;
+            float _distanceAway_Ceiling = myCollider.center.y + checkDistance;
+
+            if (Physics.Raycast(_origin, currentWallDirection, out hitInfo_Ceiling, _distanceAway, Climbable))
+            {
+                //if (hitInfo.collider.isTrigger)
+                //{
+                //    movement.y = Mathf.Clamp(input_Move.y, movement.y, 0);
+                //    temp = movement;
+                //    return temp;
+                //    //clamp up as istrigger is still no wall.
+                //}
+                temp = Vector3.up * movement.y;
+            }
+            else
+            {
+                movement.y = Mathf.Clamp(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_V), movement.y, 0);
+                temp.y = movement.y;
+            }
+        }
+
+
+
+
+
+        //if input down, check if wall still there, else clamp input
+        if (myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_V) < 0)
+        {
+            RaycastHit hitInfo;
+            Vector3 _origin = transform.position + myCollider.center + (distance_CheckStillWallThere * -Vector3.up);
+            float _distanceAway = myCollider.radius + checkDistance;
+
+            if (Physics.Raycast(_origin, currentWallDirection, out hitInfo, _distanceAway, Climbable))
+            {
+                temp = Vector3.up * movement.y;
+            }
+            else
+            {
+                movement.y = Mathf.Clamp(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_V), 0, movement.y);
+                temp.y = movement.y;
+            }
+        }
+
+        return temp;
+    }
+
+
+
+
+
+    /*
+     * SECOND: rotate LOOKS to look at wall.normal/point. (do not lock x axis) in case climbing slopes?
+     * 
+     */
+
+
+
+    //private void OnDrawGizmos()
+    //{
+    //    if(myCollider != null)
+    //    {
+    //        RaycastHit hitInfo;
+    //        Vector3 _origin = transform.position + myCollider.center;
+    //        float _distanceAway = myCollider.radius + CheckDistance;
+
+    //        if (Physics.Raycast(_origin, myManager.MySpline_Navigator.DirectionForPlayerRotation, out hitInfo, _distanceAway, Climbable))
+    //        {
+    //            if (hitInfo.collider.isTrigger) return;
+    //            //Debug.Log(Vector3.Angle(Vector3.up, hitInfo.normal));
+
+
+    //            Gizmos.color = Color.yellow;
+    //            Gizmos.DrawLine(_origin, hitInfo.point);
+
+
+    //            //If considered Wall, as per GravityController
+    //            if (Vector3.Angle(Vector3.up, hitInfo.normal) > myManager.MyGravityController.SlopeLimit)
+    //            {
+    //                Gizmos.color = Color.green;
+    //                Gizmos.DrawLine(_origin, hitInfo.point);
+    //            }
+    //        }
+    //        else
+    //        {
+    //            Gizmos.color = Color.red;
+    //            Gizmos.DrawLine(_origin, _origin + (myManager.MySpline_Navigator.DirectionForPlayerRotation * _distanceAway));
+    //        }
+    //    }
+    //}
+}
