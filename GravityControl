@@ -1,29 +1,51 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(CapsuleCollider))]
 [RequireComponent(typeof(Rigidbody))]
 public class GravityControl : MonoBehaviour
 {
-    [HideInInspector] public Rigidbody myRigidbody;
-    [HideInInspector] public CapsuleCollider myCollider;
+    Manager_PlayerMovement myManager;
+    Rigidbody myRigidbody;
+    CapsuleCollider myCollider;
+
+    [Header("Jump Settings")]
+    public float JumpPower = 12;
+    private bool jumpedPrimary;
+
+    public bool JumpedPrimary
+    {
+        get { return jumpedPrimary; }
+        set { jumpedPrimary = value; }
+    }
+
+
+
 
 
     [Header("Ground Control")]
-    [Range(0.1f, 4f)]
-    [SerializeField] float m_GravityMultiplier = 2f;
+    [Range(0.1f, 4f)][SerializeField] float gravityMultiplier = 2f;
+    public float GravityMultiplier
+    {
+        get { return gravityMultiplier; }
+    }
     [Range(0f, 100f)]
     [SerializeField] float dragMultiplier = 5f;
-    [SerializeField] float SlopeLimit = 50;
+    [SerializeField] float slopeLimit = 50;
+    public float SlopeLimit
+    {
+        get { return slopeLimit; }
+    }
     [SerializeField] float GroundCheckDistance = 0.2f;
     [SerializeField] LayerMask Ground;
     bool isGrounded;
+    public bool IsGrounded
+    {
+        get { return isGrounded; }
+    }
     bool previouslyGrounded;
     float movingPlatform_Timer;
     Transform movingPlatform;
     Vector3 groundNormal;
-
     public Vector3 GroundNormal
     {
         get { return groundNormal; }
@@ -32,19 +54,50 @@ public class GravityControl : MonoBehaviour
 
     private void Awake()
     {
+        myManager = GetComponent<Manager_PlayerMovement>();
+        myRigidbody = GetComponent<Rigidbody>();
+        //myRigidbody.constraints = RigidbodyConstraints.FreezeRotation;
+        myRigidbody.useGravity = false;
+
         myCollider = GetComponent<CapsuleCollider>();
 
-        myRigidbody = GetComponent<Rigidbody>();
-        myRigidbody.constraints = RigidbodyConstraints.FreezeRotation;
-        myRigidbody.useGravity = false;
+
+        jumpedPrimary = false;
+
+
+
+    }
+
+    void Update()
+    {
+        //if (input_Jump == 0 && jumpedPrimary) jumpedPrimary = false;
+        
+        if (myManager.MyInputs.CurrentPlayer.GetButtonDown(myManager.MyInputs.Jump) && jumpedPrimary) jumpedPrimary = false;
+       
+        //IfOn_MovingPlatform_Stay();
     }
 
     private void FixedUpdate()
     {
         CheckStatus_Ground();
         myRigidbody.drag = isGrounded ? dragMultiplier : 0;
+    }
 
-        if (!isGrounded) myRigidbody.AddForce(groundNormal * Physics.gravity.y * m_GravityMultiplier);
+
+    public void AddGravity()
+    {
+        myRigidbody.AddForce(groundNormal * Physics.gravity.y * gravityMultiplier * Time.deltaTime, ForceMode.VelocityChange);
+    }
+
+    public void ZeroOutVelicity()
+    {
+        myRigidbody.velocity = Vector3.zero;
+    }
+
+    public void DoJump()
+    {
+        myRigidbody.AddForce(Vector3.up * JumpPower, ForceMode.Impulse);
+        jumpedPrimary = true;
     }
 
 
@@ -62,7 +115,7 @@ public class GravityControl : MonoBehaviour
             //Debug.Log(Vector3.Angle(Vector3.up, hitInfo.normal));
 
             //If ground not too steep
-            if (Vector3.Angle(Vector3.up, hitInfo.normal) < SlopeLimit)
+            if (Vector3.Angle(Vector3.up, hitInfo.normal) < slopeLimit)
             {
                 groundNormal = hitInfo.normal;
                 isGrounded = true;
@@ -98,10 +151,10 @@ public class GravityControl : MonoBehaviour
             groundNormal = Vector3.up;
         }
 
-        Debug.Log("IsGrounded: " + isGrounded);
+        //Debug.Log("IsGrounded: " + isGrounded);
     }
 
-    void IfOn_MovingPlatform_Stay()
+    public void IfOn_MovingPlatform_Stay()
     {
         if (movingPlatform && movingPlatform_Timer > 0)
             transform.parent = movingPlatform;
@@ -115,4 +168,6 @@ public class GravityControl : MonoBehaviour
         }
     }
     #endregion
+
+
 }
