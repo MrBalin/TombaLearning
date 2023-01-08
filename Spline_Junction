@@ -1,12 +1,9 @@
-//Honestly, would recommend buying/creating a different Spline Package.
-//https://assetstore.unity.com/packages/tools/utilities/dreamteck-splines-61926
+//purchased from Asset store, but probably better off w/ different/better Spline Package
 using Dreamteck.Splines;
-
 using UnityEngine;
-
-//Unity Free Package
+//Download for free in Package Manager window
 using Cinemachine;
-
+using UnityEngine.UI;
 
 [RequireComponent(typeof(BoxCollider))]
 public class Spline_Junction : MonoBehaviour
@@ -21,6 +18,8 @@ public class Spline_Junction : MonoBehaviour
     [SerializeField] CinemachineVirtualCamera Camera_B;
 
     [SerializeField] Transform my3DUI;
+
+    [SerializeField] Image fillerImage;
 
 
     BoxCollider myCollider;
@@ -40,7 +39,8 @@ public class Spline_Junction : MonoBehaviour
 
         my3DUI.gameObject.SetActive(false);
         didChange = false;
-        timer = timeRemaining;
+        timer = 0;
+        fillerImage.fillAmount = 0;
     }
 
     private void Update()
@@ -50,13 +50,14 @@ public class Spline_Junction : MonoBehaviour
 
             if (playerManager.MySpline_Navigator.AtStartofSpline)
             {
-                if (timer > 0)
+                if (timer <= timeRemaining)
                 {
-                    timer -= Time.deltaTime;
+                    timer += Time.deltaTime;
+
+                    fillerImage.fillAmount = timer / timeRemaining;
                 }
                 else
                 {
-
                     if (playerManager.MySpline_Navigator != null) AssignSpline(playerManager.MySpline_Navigator);
                     didChange = true;
                 }
@@ -64,13 +65,13 @@ public class Spline_Junction : MonoBehaviour
 
             if (playerManager.MySpline_Navigator.AtEndofSpline)
             {
-                if (timer > 0)
+                if (timer <= timeRemaining)
                 {
-                    timer -= Time.deltaTime;
+                    timer += Time.deltaTime;
+                    fillerImage.fillAmount = timer / timeRemaining;
                 }
                 else
                 {
-
                     if (playerManager.MySpline_Navigator != null) AssignSpline(playerManager.MySpline_Navigator);
                     didChange = true;
                 }
@@ -81,9 +82,10 @@ public class Spline_Junction : MonoBehaviour
             {
                 if (playerManager.MyInputs.CurrentPlayer.GetAxis(playerManager.MyInputs.Move_V) > 0)
                 {
-                    if (timer > 0)
+                    if (timer <= timeRemaining)
                     {
-                        timer -= Time.deltaTime;
+                        timer += Time.deltaTime;
+                        fillerImage.fillAmount = timer / timeRemaining;
                     }
                     else
                     {
@@ -94,7 +96,8 @@ public class Spline_Junction : MonoBehaviour
                 }
                 if (playerManager.MyInputs.CurrentPlayer.GetAxis(playerManager.MyInputs.Move_V) <= 0)
                 {
-                    timer = timeRemaining;
+                    timer = 0;
+                    fillerImage.fillAmount = 0;
                 }
             }
 
@@ -118,7 +121,8 @@ public class Spline_Junction : MonoBehaviour
         {
             my3DUI.gameObject.SetActive(false);
             didChange = false;
-            timer = timeRemaining;
+            timer = 0;
+            fillerImage.fillAmount = 0;
             playerManager = null;
 
         }
@@ -135,7 +139,9 @@ public class Spline_Junction : MonoBehaviour
             Camera_B.Priority = 1;
             Camera_A.Priority = 0;
 
-            timer = timeRemaining;
+            timer = 0;
+            fillerImage.fillAmount = 0;
+
             return;
         }
 
@@ -149,9 +155,9 @@ public class Spline_Junction : MonoBehaviour
 
 
             //Debug.Log("Assigned to: Spline A");
-            timer = timeRemaining;
+            timer = 0;
+            fillerImage.fillAmount = 0;
             return;
         }
     }
 }
-
