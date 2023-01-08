@@ -1,21 +1,22 @@
-using Dreamteck.Splines;
-using System.Collections;
-using System.Collections.Generic;
-using Unity.Mathematics;
-using Unity.VisualScripting;
-using UnityEngine;
-using UnityEngine.InputSystem;
-using static UnityEngine.GraphicsBuffer;
-
 /*
- * Requires UnityEngine.InputSystem (From Package Manager)
- * Requires DreamTeck Splines (From Asset Store)
+ * Requires DreamTeck Splines (From Asset Store), but would recommend an easier Spline Package.
+ * https://assetstore.unity.com/packages/tools/utilities/dreamteck-splines-61926
  */
+using Dreamteck.Splines;
+
+using UnityEngine;
+
+
+
+
 [RequireComponent(typeof(Rigidbody))]
-[RequireComponent(typeof(GravityControl))]
+[RequireComponent(typeof(Manager_PlayerMovement))]
 public class Spline_Navigator : MonoBehaviour
 {
-    [HideInInspector] public Rigidbody myRigidbody;
+    Rigidbody myRigidbody;
+
+    Manager_PlayerMovement myManager;
+
 
     #region Inputs
     private Vector2 movement;
@@ -23,16 +24,22 @@ public class Spline_Navigator : MonoBehaviour
     {
         get { return movement; }
     }
-    private Vector2 input_Move;
-    public void OnMove(InputAction.CallbackContext context)
-    {
-        input_Move = context.ReadValue<Vector2>();
-    }
     #endregion
 
+
+
     [Header("Character Settings")]
-    [SerializeField] float currentSpeed = 4;
-    [SerializeField] GravityControl myGravityController;
+    [Range(0.1f, 0.9f)]
+    [SerializeField] float moveThreshold = 0.4f;
+    [SerializeField] float speed = 4;
+    float currentSpeed;
+    public bool UseMultiplier = false;
+    [Range(0.1f, 4f)][SerializeField] float speedMultiplier = 2f;
+    public float SpeedMultiplier
+    {
+        get { return speedMultiplier; }
+    }
+
 
 
     [Header("Spline Confine")]
@@ -42,44 +49,103 @@ public class Spline_Navigator : MonoBehaviour
     [Range(0f, 0.01f)]
     [SerializeField] float endCapVariance = 0.005f;
     SplineSample sample;
+    [HideInInspector] public SplineSample MySample
+    {
+        get { return sample; }
+    }
+    [SerializeField] float sampleHop = 0.01f;
+    SplineSample sample_destination;
 
     Vector3 direction_SampleForward_AlteredByInput;
     Vector3 direction_Planar;
     Vector3 direction_ForPlayerRotation;
-
     [HideInInspector] public Vector3 DirectionForPlayerRotation
     {
         get { return direction_ForPlayerRotation; }
     }
 
 
+    bool cameraOnRightSideOfSpline;
+    public bool CameraOnRightSideOfSpline
+    {
+        get { return cameraOnRightSideOfSpline; }
+    }
+
+
+    [Header("Player Rotation")]
+    public bool ControlPlayerRotation = true;
+    [SerializeField] float speed_Rotation = 10;
+
+
     void Awake()
     {
+        myManager = GetComponent<Manager_PlayerMovement>();
+
         myRigidbody = GetComponent<Rigidbody>();
         sample = new SplineSample();
 
-        GetSample_InRelationToCurrentWorldPosition();
+        sample = GetSample_InRelationToCurrentWorldPosition();
     }
 
-    // Update is called once per frame
-    void Update()
-    {
-        movement = input_Move;
-        GetSample_InRelationToCurrentWorldPosition();
 
-        direction_SampleForward_AlteredByInput = AssignInputsForMovement();
+    public void Handle_UpdateFunctions()
+    {
+        movement = new Vector2(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H), myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_V));
+
+        //if(movement.x > 0) Debug.Log("ACTUALLY moving right");
+
+        //Debug.Log("THINKS moving right: " + IsMovingCamRight());
+        HandleSpeed();
+
+        sample = GetSample_InRelationToCurrentWorldPosition();
+
+
+        direction_SampleForward_AlteredByInput = AssignInputsForMovement(movement);
+
         direction_Planar = MoveOnPlane(direction_SampleForward_AlteredByInput);
+
+
+        cameraOnRightSideOfSpline = GetDirection_InRelationToSampleForward(MyCamera).y < 0 ? true : false;
+
+
+
+        if (direction_SampleForward_AlteredByInput != Vector3.zero) currentRotation = Quaternion.LookRotation(direction_SampleForward_AlteredByInput);
+
+
+        //if (direction_SampleForward_AlteredByInput != Vector3.zero)
+        //{
+        //    movedirection = new Vector3(sample.position.x, transform.position.y, sample.position.z);
+        //}
+        //else movedirection = Vector3.zero;
+
+
+        //SpeedControl();
     }
 
-    private void FixedUpdate()
+
+
+
+    Vector3 movedirection;
+    Quaternion currentRotation = Quaternion.identity;
+    public void Handle_FixedUpdateFunctions()
     {
-        Move_Rigidbody(myRigidbody);
+        Move_Rigidbody();
+
+
+
+        if(ControlPlayerRotation) Rotate_Rigidbody();
     }
 
 
 
 
-    void GetSample_InRelationToCurrentWorldPosition()
+    void HandleSpeed()
+    {
+        currentSpeed = UseMultiplier ? speed * speedMultiplier : speed;
+    }
+
+
+    SplineSample GetSample_InRelationToCurrentWorldPosition()
     {
         /* MyProjector feeds data as to closest %/position the GameObject is on CurrentSpline
          * It DOES NOT actually give sample data.
@@ -89,7 +155,7 @@ public class Spline_Navigator : MonoBehaviour
          * To help learn more about directions of the sample, uncomment the Debug.DrawRays
          */
 
-        sample = CurrentSpline.Evaluate(MyProjector.GetPercent(), SplineComputer.EvaluateMode.Cached);
+        return CurrentSpline.Evaluate(MyProjector.GetPercent(), SplineComputer.EvaluateMode.Cached);
         //Debug.DrawRay(sample.position, sample.forward, Color.blue, 10f);
         //Debug.DrawRay(sample.position, sample.up, Color.green, 10f);
         //Debug.DrawRay(sample.position, sample.right, Color.red, 10f);
@@ -124,7 +190,137 @@ public class Spline_Navigator : MonoBehaviour
         return cross;
     }
 
-    Vector3 AssignInputsForMovement()
+
+
+
+
+
+    bool atStartofSpline;
+    public bool AtStartofSpline
+    {
+        get
+        {
+            return atStartofSpline;
+        }
+    }
+    bool atEndofSpline;
+    public bool AtEndofSpline
+    {
+        get
+        {
+            return atEndofSpline;
+        }
+    }
+
+    public bool IsMovingCamRight()
+    {
+        if(GetDirection_InRelationToSampleForward(MyCamera).y < 0)
+        {
+            //Debug.Log("camera to right");
+            if (Mathf.Abs(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H)) >= moveThreshold)
+            {
+                if(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H) > 0)
+                {
+                    //Debug.Log("isMoving Right");
+                    return true;
+                }
+            }
+
+        }
+        if (GetDirection_InRelationToSampleForward(MyCamera).y > 0)
+        {
+            //Debug.Log("camera to left");
+            if (Mathf.Abs(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H)) >= moveThreshold)
+            {
+                if (myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H) > 0)
+                {
+                    //Debug.Log("isMoving Right");
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public bool IsMovingCamLeft()
+    {
+        if (GetDirection_InRelationToSampleForward(MyCamera).y < 0)
+        {
+            //Debug.Log("camera to right");
+            if (Mathf.Abs(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H)) >= moveThreshold)
+            {
+                if (myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H) < 0)
+                {
+                    //Debug.Log("isMoving Left");
+                    return true;
+                }
+            }
+
+        }
+        if (GetDirection_InRelationToSampleForward(MyCamera).y > 0)
+        {
+            //Debug.Log("camera to left");
+            if (Mathf.Abs(myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H)) >= moveThreshold)
+            {
+                if (myManager.MyInputs.CurrentPlayer.GetAxis(myManager.MyInputs.Move_H) < 0)
+                {
+                    //Debug.Log("isMoving Left");
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+
+    public Vector3 GetSplineBasedInputValues(Vector3 _inputMovement)
+    {
+        Vector3 temp = Vector3.zero;
+        if (_inputMovement.x != 0)
+        {
+            if (GetDirection_InRelationToSampleForward(MyCamera).y < 0)
+            {
+                //Debug.Log("camera to right");
+
+                /*
+                 * Should the Character reach the end of a Spline, do not enforce further input from Player.
+                 */
+                if (sample.percent + endCapVariance >= 1)
+                {
+                    temp.x = Mathf.Clamp(_inputMovement.x, _inputMovement.x, 0);
+                }
+                if (sample.percent - endCapVariance <= 0)
+                {
+                    temp.x = Mathf.Clamp(_inputMovement.x, 0, _inputMovement.x);
+                }
+
+                temp = sample.forward * _inputMovement.x;
+            }
+
+            if (GetDirection_InRelationToSampleForward(MyCamera).y > 0)
+            {
+                //Debug.Log("camera to left");
+
+                /*
+                 * Should the Character reach the end of a Spline, do not enforce further input from Player.
+                 */
+                if (sample.percent + endCapVariance >= 1)
+                {
+                    temp.x = Mathf.Clamp(_inputMovement.x, 0, _inputMovement.x);
+                }
+                if (sample.percent - endCapVariance <= 0)
+                {
+                    temp.x = Mathf.Clamp(_inputMovement.x, _inputMovement.x, 0);
+                }
+
+                temp = sample.forward * -_inputMovement.x;
+            }
+        }
+
+        return temp;
+    }
+
+    Vector3 AssignInputsForMovement(Vector3 _inputMovement)
     {
 
         /*
@@ -140,8 +336,10 @@ public class Spline_Navigator : MonoBehaviour
          */
 
         Vector3 temp = Vector3.zero;
+        float tempPercent = 0;
 
-        if (input_Move.x != 0)
+
+        if (Mathf.Abs(_inputMovement.x) >= moveThreshold)
         {
             if (GetDirection_InRelationToSampleForward(MyCamera).y < 0)
             {
@@ -152,15 +350,79 @@ public class Spline_Navigator : MonoBehaviour
                  */
                 if (sample.percent + endCapVariance >= 1)
                 {
-                    movement.x = Mathf.Clamp(movement.x, movement.x, 0);
+                    _inputMovement.x = Mathf.Clamp(_inputMovement.x, _inputMovement.x, 0);
+                    atEndofSpline = true;
                 }
-                if (sample.percent - endCapVariance <= 0)
+                else
                 {
-                    movement.x = Mathf.Clamp(movement.x, 0, movement.x);
+                    atEndofSpline = false;
                 }
 
-                temp = sample.forward * movement.x;
+                if (sample.percent - endCapVariance <= 0)
+                {
+                    _inputMovement.x = Mathf.Clamp(_inputMovement.x, 0, _inputMovement.x);
+                    atStartofSpline = true;
+                }
+                else
+                {
+                    atStartofSpline= false;
+                }
+
+
+
+
+
+                //if (_inputMovement.x < 0)
+                //{
+                //    Debug.Log("move left");
+
+                //    double trouble = sample.percent - sampleHop;
+                //    float TroubleToFloat = (float)trouble;
+                //    if (sample.percent - sampleHop + endCapVariance >= 1)
+                //    {
+
+                //        TroubleToFloat = Mathf.Clamp(TroubleToFloat, TroubleToFloat, 0);
+                //    }
+                //    if (sample.percent - endCapVariance <= 0)
+                //    {
+                //        TroubleToFloat = Mathf.Clamp(TroubleToFloat, 0, TroubleToFloat);
+                //    }
+
+                //    trouble = (double)TroubleToFloat;
+                //    sample_destination = CurrentSpline.Evaluate(trouble, SplineComputer.EvaluateMode.Cached);
+                //}
+
+
+
+
+
+
+
+
+
+
+
+                //if (_inputMovement.x > 0)
+                //{
+                //    //Debug.Log("move right");
+                //    sample_destination = CurrentSpline.Evaluate(sample.percent + sampleHop, SplineComputer.EvaluateMode.Cached);
+                //}
+
+                //Vector3 direction = sample_destination.position - transform.position;
+                //direction.y = 0;
+                //temp = direction;
+
+                //direction_ForPlayerRotation = temp;
+
+
+
+
+
+
+
+                temp = sample.forward * _inputMovement.x;
                 direction_ForPlayerRotation = temp;
+
             }
 
             if (GetDirection_InRelationToSampleForward(MyCamera).y > 0)
@@ -172,16 +434,49 @@ public class Spline_Navigator : MonoBehaviour
                  */
                 if (sample.percent + endCapVariance >= 1)
                 {
-                    movement.x = Mathf.Clamp(movement.x, 0, movement.x);
+                    _inputMovement.x = Mathf.Clamp(_inputMovement.x, 0, _inputMovement.x);
+                    atEndofSpline = true;
+                }
+                else
+                {
+                    atEndofSpline = false;
                 }
                 if (sample.percent - endCapVariance <= 0)
                 {
-                    movement.x = Mathf.Clamp(movement.x, movement.x, 0);
+                    _inputMovement.x = Mathf.Clamp(_inputMovement.x, _inputMovement.x, 0);
+                    atStartofSpline = true;
+                }
+                else
+                {
+                    atStartofSpline = false;
                 }
 
-                temp = sample.forward * -movement.x;
+                //if(_inputMovement.x  < 0)
+                //{
+                //    //Debug.Log("move left");
+                //    sample_destination = CurrentSpline.Evaluate(sample.percent + sampleHop, SplineComputer.EvaluateMode.Cached);
+                //}
+                //if (_inputMovement.x > 0)
+                //{
+                //    //Debug.Log("move right");
+                //    sample_destination = CurrentSpline.Evaluate(sample.percent - sampleHop, SplineComputer.EvaluateMode.Cached);
+                //}
+
+                //Vector3 direction = sample_destination.position - transform.position;
+                //direction.y = 0;
+                //temp = direction;
+
+                //direction_ForPlayerRotation = temp;
+
+
+                temp = sample.forward * -_inputMovement.x;
                 direction_ForPlayerRotation = temp;
             }
+        }
+        else
+        {
+            atStartofSpline = false;
+            atEndofSpline = false;
         }
 
         return temp;
@@ -190,15 +485,95 @@ public class Spline_Navigator : MonoBehaviour
 
     Vector3 MoveOnPlane(Vector3 _direction)
     {
-        Vector3 temp = Vector3.ProjectOnPlane(_direction, myGravityController.GroundNormal);
-        if (myGravityController.GroundNormal == Vector3.up) temp.y = transform.eulerAngles.y;
+        Vector3 temp = Vector3.ProjectOnPlane(_direction, myManager.MyGravityController.GroundNormal);
+        //if (myManager.MyGravityController.GroundNormal == Vector3.up) temp.y = transform.eulerAngles.y;
 
         return temp;
     }
 
-    void Move_Rigidbody(Rigidbody _rigidbody)
+    [SerializeField] float maxForce = 4f;
+    public void Move_Rigidbody()
     {
-        Vector3 temp = new Vector3(sample.position.x, transform.position.y, sample.position.z);
-        _rigidbody.MovePosition(Vector3.Lerp(transform.position, temp + direction_Planar, currentSpeed * Time.deltaTime));
+        //Vector3 temp = new Vector3(sample.position.x, transform.position.y, sample.position.z);
+        //myRigidbody.MovePosition(Vector3.Lerp(transform.position, temp + direction_Planar, currentSpeed * Time.deltaTime));
+
+        if(Mathf.Abs(movement.x) > 0)
+        {
+            //Vector3 temp = new Vector3(sample.position.x, transform.position.y, sample.position.z);
+            //myRigidbody.MovePosition(Vector3.Lerp(transform.position, temp + direction_Planar, currentSpeed * Time.deltaTime));
+
+            Vector3 temp = new Vector3(sample.position.x, transform.position.y, sample.position.z);
+            Vector3 tempP = new Vector3(direction_Planar.x, direction_Planar.y, direction_Planar.z).normalized;
+            myRigidbody.MovePosition(Vector3.Lerp(transform.position, temp + tempP, currentSpeed * Time.deltaTime));
+        }
+
+
+        //if (myManager.MyGravityController.IsGrounded)  myRigidbody.AddForce(direction_Planar * currentSpeed, ForceMode.Force);
+        //if (!myManager.MyGravityController.IsGrounded) myRigidbody.AddForce(direction_Planar * currentSpeed * AirDrag, ForceMode.Force);
+
+
+        //myRigidbody.MovePosition(transform.position + direction_Planar * currentSpeed * Time.deltaTime);
+
+
+        //Find target Velocity
+        //Vector3 vel_current = myRigidbody.velocity;
+        //Vector3 vel_target = new Vector3(direction_Planar.x, 0, direction_Planar.z);
+        //vel_target *= currentSpeed;
+
+        ////align direction
+        //vel_target = transform.TransformDirection(vel_target);
+
+        ////calc Forces?
+        //Vector3 vel_change = (vel_target - vel_current);
+
+
+        ////limit force?
+        //Vector3.ClampMagnitude(vel_change, maxForce);
+
+        //myRigidbody.AddForce(vel_change, ForceMode.VelocityChange);
     }
+
+
+    void Rotate_Rigidbody()
+    {
+        //Quaternion slerp = Quaternion.Slerp(myRigidbody.rotation, currentRotation, myManager.MyLooksRotator.speed_ToRotate * Time.deltaTime);
+        //transform.rotation = slerp;
+
+        //Vector3 direction = sample_destination.position - transform.position;
+        //myRigidbody.rotation = Quaternion.Euler(0, direction.y, 0);
+
+        //myRigidbody.MoveRotation(Quaternion.Euler(0,0,0));
+
+        //myRigidbody.DOLookAt(sample_destination.position, 10f * Time.deltaTime, AxisConstraint.Y);
+
+        //Quaternion rotation = Quaternion.LookRotation(direction_SampleForward_AlteredByInput, Vector3.up);
+        //rotation.x = 0f;
+        //rotation.z = 0f;
+        //transform.rotation = Quaternion.identity;
+
+
+
+        Quaternion slerp = Quaternion.Slerp(myRigidbody.rotation, currentRotation, speed_Rotation * Time.deltaTime);
+        //transform.rotation = slerp;
+        myRigidbody.MoveRotation(slerp);
+    }
+
+    void SpeedControl()
+    {
+        //Vector3 rigidbodyVel_woY = new Vector3(myRigidbody.velocity.x, 0, myRigidbody.velocity.z);
+
+        //if(rigidbodyVel_woY.magnitude > currentSpeed)
+        //{
+        //    Vector3 rigidbodyVel_limited = rigidbodyVel_woY.normalized * currentSpeed;
+        //    myRigidbody.velocity = new Vector3(rigidbodyVel_limited.x, myRigidbody.velocity.y, rigidbodyVel_limited.z);
+        //}
+    }
+
+
+    private void OnDrawGizmos()
+    {
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawSphere(sample_destination.position, 0.3f);
+    }
+
 }
