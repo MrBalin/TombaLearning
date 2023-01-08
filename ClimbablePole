@@ -1,0 +1,51 @@
+using DG.Tweening;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Pole : MonoBehaviour
+{
+    [SerializeField] float RotateBy = 180;
+    Vector3 rotVec;
+
+    public Transform Player;
+    public Rigidbody OffsetForPlayerRot;
+    public Transform Chaser;
+    public bool FoundObject;
+
+    bool rotatedOnce;
+
+    private void Awake()
+    {
+        if (OffsetForPlayerRot) OffsetForPlayerRot.useGravity = false;
+    }
+
+    public void SwitchSides(float _duration, WallClimbing _climber)
+    {
+        if(_climber != null)
+        {
+          
+
+            rotVec = Vector3.up * (OffsetForPlayerRot.transform.localEulerAngles.y + RotateBy);
+            OffsetForPlayerRot.DORotate(rotVec, _duration, RotateMode.Fast).SetEase(Ease.OutQuad);
+
+            //I think this doesnt work because it is CHILD of destination (which has rotation)
+            //Player.DOLookAt(OffsetForPlayerRot.position, 0.5f, AxisConstraint.Y);
+
+            if (!rotatedOnce)
+            {
+                Vector3 playerRotVec = Vector3.up * (Player.transform.localEulerAngles.y + RotateBy);
+                Player.DORotate(playerRotVec, _duration, RotateMode.Fast).SetEase(Ease.OutQuad);
+                rotatedOnce = true;
+                return;
+            }
+            if (rotatedOnce)
+            {
+                Vector3 playerRotVec = Vector3.up * (Player.transform.localEulerAngles.y + (RotateBy * 2));
+                Player.DORotate(playerRotVec, _duration, RotateMode.Fast).SetEase(Ease.OutQuad);
+
+                rotatedOnce = false;
+            }
+        }
+    }
+}
